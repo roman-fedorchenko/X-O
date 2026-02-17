@@ -1,0 +1,50 @@
+// Налаштування підключення до Neon
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Таблиця користувачів
+model User {
+  id       Int      @id @default(autoincrement())
+  rang     Int      @default(1000)
+  password String
+  name     String
+  email    String   @unique
+  losses   Int      @default(0)
+  wins     Int      @default(0)
+
+  // Зв'язки для ігор та сесій
+  gamesAsX Game[]    @relation("PlayerX")
+  gamesAsO Game[]    @relation("PlayerO")
+  sessions Session[]
+}
+
+// Таблиця сесій для авторизації
+model Session {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  refresh_token String   @unique
+  user_agent    String
+  exprise_at    DateTime
+  created_at    DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id])
+}
+
+// Таблиця ігор
+model Game {
+  id          Int      @id @default(autoincrement())
+  player_x    Int
+  player_o    Int
+  winner      Boolean? // true - X, false - O, null - нічия
+  time        DateTime @default(now())
+  board_state String   // заміна blob на string для зручності
+
+  userX User @relation("PlayerX", fields: [player_x], references: [id])
+  userO User @relation("PlayerO", fields: [player_o], references: [id])
+}
