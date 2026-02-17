@@ -5,6 +5,9 @@
     "start": "node server.js",
     "postinstall": "prisma generate"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "cors": "^2.8.6",
