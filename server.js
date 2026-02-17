@@ -56,3 +56,27 @@ const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
   console.log(`Server started on port ${PORT}`);
 });
+// Тестовий ендпоінт для перевірки з'єднання
+app.get('/api/healthcheck', async (req, res) => {
+  try {
+    // 1. Спроба зробити запит до БД через Prisma
+    const userCount = await prisma.user.count();
+    
+    // 2. Якщо запит успішний, повертаємо статус 200
+    res.status(200).json({
+      success: true,
+      message: "Сервер працює, база даних підключена!",
+      database: "Connected",
+      totalUsers: userCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    // 3. Якщо база не відповідає, ми отримаємо помилку тут
+    console.error("DB Connection Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Сервер працює, але ПОМИЛКА підключення до БД",
+      error: error.message
+    });
+  }
+});
