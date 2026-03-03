@@ -1,82 +1,76 @@
+require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
 const cors = require('cors');
-const { PrismaClient } = require('@prisma/client'); // Підключаємо Prisma
+const jwt = require('jsonwebtoken');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const app = express();
+const JWT_SECRET = process.env.JWT_SECRET;
+
 app.use(cors());
-app.use(express.json()); // Щоб приймати JSON у POST запитах
+app.use(express.json());
+app.use(passport.initialize());
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
-});
-
-// 1. Реєстрація нового гравця
-app.post('/register', async (req, res) => {
-  const { name, email, password } = req.body;
-  try {
-    const newUser = await prisma.user.create({
-      data: { name, email, password, rang: 1000 }
-    });
-    res.json({ success: true, user: newUser });
-  } catch (error) {
-    res.status(400).json({ success: false, error: "Email вже зайнятий або дані невірні" });
-  }
-});
-
-// 2. Логіка Socket.io для матчмейкінгу
-let waitingPlayers = [];
-
-io.on('connection', (socket) => {
-  console.log('Гравець підключився:', socket.id);
-
-  socket.on('join_queue', (userData) => {
-    // Додаємо в чергу
-    waitingPlayers.push({ id: socket.id, rang: userData.rang, name: userData.name });
-    
-    if (waitingPlayers.length >= 2) {
-      const p1 = waitingPlayers.shift();
-      const p2 = waitingPlayers.shift();
-      
-      const roomId = `room_${p1.id}_${p2.id}`;
-      io.to(p1.id).emit('match_found', { roomId, opponent: p2.name, side: 'X' });
-      io.to(p2.id).emit('match_found', { roomId, opponent: p1.name, side: 'O' });
+// --- Налаштування Google Auth ---
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK_URL
+  },
+  async (accessToken, refreshToken, profile, done) => {
+    try {
+      // Шукаємо користувача або створюємо нового (Upsert)
+      let user = await prisma.user.upsert({
+        where: { googleId: profile.id },
+        update: { name: profile.displayName, avatarUrl: profile.photos[0]?.value },
+        create: {
+          googleId: profile.id,
+          email: profile.emails[0].value,
+          name: profile.displayName,
+          avatarUrl: profile.photos[0]?.value,
+          rang: 1000
+        }
+      });
+      return done(null, user);
+    } catch (err) {
+      return done(err, null);
     }
-  });
+  }
+));
 
-  socket.on('disconnect', () => {
-    waitingPlayers = waitingPlayers.filter(p => p.id !== socket.id);
-  });
+// --- Ендпоінти (Endpoints) ---
+
+// 1. Початок авторизації
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+// 2. Обробка відповіді від Google
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { session: false }), 
+  (req, res) => {
+    // Створюємо токен
+    const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    // Відправляємо на фронтенд (параметр у посиланні)
+    res.redirect(`${process.env.FRONTEND_URL}/auth-success?token=${token}`);
+  }
+);
+
+// 3. Перевірка статусу (Healthcheck)
+app.get('/api/me', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: "No token" });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+        res.json(user);
+    } catch (e) {
+        res.status(401).json({ error: "Invalid token" });
+    }
 });
 
 const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
-});
-// Тестовий ендпоінт для перевірки з'єднання
-app.get('/api/healthcheck', async (req, res) => {
-  try {
-    // 1. Спроба зробити запит до БД через Prisma
-    const userCount = await prisma.user.count();
-    
-    // 2. Якщо запит успішний, повертаємо статус 200
-    res.status(200).json({
-      success: true,
-      message: "Сервер працює, база даних підключена!",
-      database: "Connected",
-      totalUsers: userCount,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    // 3. Якщо база не відповідає, ми отримаємо помилку тут
-    console.error("DB Connection Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Сервер працює, але ПОМИЛКА підключення до БД",
-      error: error.message
-    });
-  }
-});
+app.listen(PORT, () => console.log(`🚀 Сервер реєстрації запущено на порту ${PORT}`));

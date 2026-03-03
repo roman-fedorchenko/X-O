@@ -10,18 +10,23 @@ generator client {
 
 // Таблиця користувачів
 model User {
-  id       Int      @id @default(autoincrement())
-  rang     Int      @default(1000)
-  password String
-  name     String
-  email    String   @unique
-  losses   Int      @default(0)
-  wins     Int      @default(0)
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  
+  // Робимо googleId обов'язковим, оскільки це єдиний спосіб входу
+  googleId  String   @unique
+  avatarUrl String?  // Фото профілю з Google
 
-  // Зв'язки для ігор та сесій
-  gamesAsX Game[]    @relation("PlayerX")
-  gamesAsO Game[]    @relation("PlayerO")
-  sessions Session[]
+  // Ігрова статистика
+  rang      Int      @default(1000)
+  losses    Int      @default(0)
+  wins      Int      @default(0)
+
+  // Зв'язки залишаються без змін
+  gamesAsX  Game[]   @relation("PlayerX")
+  gamesAsO  Game[]   @relation("PlayerO")
+  sessions  Session[]
 }
 
 // Таблиця сесій для авторизації
